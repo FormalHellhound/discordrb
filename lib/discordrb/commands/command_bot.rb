@@ -398,10 +398,10 @@ module Discordrb::Commands
       end
     end
 
-    def permitted_roles?(member, required)
-      return (required.nil? || required.empty?) if member.webhook?
-      if required.is_a? Array
-        required.any? do |role|
+    def permitted_roles?(member, permitted)
+      return (permitted.nil? || permitted.empty?)
+      if permitted.is_a? Array
+        permitted.any? do |role|
           member.role?(role)
         end
       else
