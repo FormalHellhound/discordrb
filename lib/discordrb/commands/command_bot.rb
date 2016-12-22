@@ -193,7 +193,10 @@ module Discordrb::Commands
       if (check_permissions &&
          permission?(event.author, command.attributes[:permission_level], event.server) &&
          required_permissions?(event.author, command.attributes[:required_permissions], event.channel) &&
-         required_roles?(event.author, command.attributes[:required_roles]) &&
+         required_roles?(event.author, command.attributes[:required_roles]) ||
+         check_permissions &&
+         permission?(event.author, command.attributes[:permission_level], event.server) &&
+         required_permissions?(event.author, command.attributes[:required_permissions], event.channel) &&
          permitted_roles?(event.author, command.attributes[:permitted_roles])) ||
          !check_permissions
         event.command = command
