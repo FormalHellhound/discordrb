@@ -151,7 +151,7 @@ module Discordrb::Commands
           result
         else
           available_commands = @commands.values.reject do |c|
-            !c.attributes[:help_available] || !required_roles?(event.user, c.attributes[:required_roles]) || !required_permissions?(event.user, c.attributes[:required_permissions], event.channel)
+            !c.attributes[:help_available] || !required_roles?(event.user, c.attributes[:required_roles]) || !required_permissions?(event.user, c.attributes[:required_permissions], event.channel) || !permitted_roles?(event.user, c.attributes[:permitted_roles])
           end
           case available_commands.length
           when 0..5
@@ -193,7 +193,8 @@ module Discordrb::Commands
       if (check_permissions &&
          permission?(event.author, command.attributes[:permission_level], event.server) &&
          required_permissions?(event.author, command.attributes[:required_permissions], event.channel) &&
-         required_roles?(event.author, command.attributes[:required_roles])) ||
+         required_roles?(event.author, command.attributes[:required_roles])) &&
+         permitted_roles?(event.author, command.attributes[:permitted_roles]))  ||
          !check_permissions
         event.command = command
         result = command.call(event, arguments, chained, check_permissions)
@@ -309,6 +310,17 @@ module Discordrb::Commands
       return (required.nil? || required.empty?) if member.webhook?
       if required.is_a? Array
         required.all? do |role|
+          member.role?(role)
+        end
+      else
+        member.role?(role)
+      end
+    end
+
+    def permitted_roles?(member, required)
+      return (required.nil? || required.empty?) if member.webhook?
+      if required.is_a? Array
+        required.any? do |role|
           member.role?(role)
         end
       else

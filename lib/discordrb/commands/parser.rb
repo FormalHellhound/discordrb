@@ -25,6 +25,9 @@ module Discordrb::Commands
         # Roles required to use this command
         required_roles: attributes[:required_roles] || [],
 
+        # Roles allowed to use this command
+        permitted_roles: attributes[:permitted_roles] || [],
+
         # Channels this command can be used on
         channels: attributes[:channels] || nil,
 
