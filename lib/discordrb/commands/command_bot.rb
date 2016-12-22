@@ -318,7 +318,7 @@ module Discordrb::Commands
     end
 
     def permitted_roles?(member, permitted)
-      return (permitted.nil? || permitted.empty?)
+      return true if (permitted.nil? || permitted.empty?)
       if permitted.is_a? Array
         permitted.any? do |role|
           member.role?(role)
