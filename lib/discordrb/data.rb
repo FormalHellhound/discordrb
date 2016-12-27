@@ -1631,7 +1631,8 @@ module Discordrb
     alias_method :text, :content
     alias_method :to_s, :content
 
-    # @return [Member] the user that sent this message.
+    # @return [Member, User] the user that sent this message. (Will be a {Member} most of the time, it should only be a
+    #   {User} for old messages when the author has left the server since then)
     attr_reader :author
     alias_method :user, :author
     alias_method :writer, :author
@@ -1709,7 +1710,12 @@ module Discordrb
                     Recipient.new(bot.user(data['author']['id'].to_i), @channel, bot)
                   else
                     member = @channel.server.member(data['author']['id'].to_i)
-                    Discordrb::LOGGER.warn("Member with ID #{data['author']['id']} not cached even though it should be.") unless member
+
+                    unless member
+                      Discordrb::LOGGER.debug("Member with ID #{data['author']['id']} not cached (possibly left the server).")
+                      member = @bot.user(data['author']['id'].to_i)
+                    end
+
                     member
                   end
                 end
@@ -2141,7 +2147,7 @@ module Discordrb
     # @return [Array<Role>] an array of all the roles created on this server.
     attr_reader :roles
 
-    # @return [Hash<Integer, Emoji>] an array of all the emoji available on this server.
+    # @return [Hash<Integer, Emoji>] a hash of all the emoji available on this server.
     attr_reader :emoji
     alias_method :emojis, :emoji
 
@@ -2543,6 +2549,22 @@ module Discordrb
         LOGGER.debug("AFK channel #{@afk_channel_id} on server #{@id} is unreachable, setting to nil even though one exists")
         @afk_channel = nil
       end
+    end
+
+    # Adds a channel to this server's cache
+    # @note For internal use only
+    # @!visibility private
+    def add_channel(channel)
+      @channels << channel
+      @channels_by_id[channel.id] = channel
+    end
+
+    # Deletes a channel from this server's cache
+    # @note For internal use only
+    # @!visibility private
+    def delete_channel(id)
+      @channels.reject! { |e| e.id == id }
+      @channels_by_id.delete(id)
     end
 
     # The inspect method is overwritten to give more useful output
