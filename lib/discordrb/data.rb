@@ -85,6 +85,18 @@ module Discordrb
       ms = (@id >> 22) + DISCORD_EPOCH
       Time.at(ms / 1000.0)
     end
+
+    # Creates an artificial snowflake at the given point in time. Useful for comparing against.
+    # @param time [Time] The time the snowflake should represent.
+    # @return [Integer] a snowflake with the timestamp data as the given time
+    def self.synthesise(time)
+      ms = (time.to_f * 1000).to_i
+      (ms - DISCORD_EPOCH) << 22
+    end
+
+    class << self
+      alias_method :synthesize, :synthesise
+    end
   end
 
   # Mixin for the attributes users should have
@@ -131,13 +143,18 @@ module Discordrb
     include IDObject
     include UserAttributes
 
-    # @!attribute [r] status
-    #   @return [Symbol] the current online status of the user (`:online`, `:offline` or `:idle`)
-    attr_accessor :status
+    # @return [Symbol] the current online status of the user (`:online`, `:offline` or `:idle`)
+    attr_reader :status
 
-    # @!attribute [r] game
-    #   @return [String, nil] the game the user is currently playing, or `nil` if none is being played.
-    attr_accessor :game
+    # @return [String, nil] the game the user is currently playing, or `nil` if none is being played.
+    attr_reader :game
+
+    # @return [String, nil] the URL to the stream, if the user is currently streaming something.
+    attr_reader :stream_url
+
+    # @return [String, Integer, nil] the type of the stream. Can technically be set to anything, most of the time it
+    #   will be 0 for no stream or 1 for Twitch streams.
+    attr_reader :stream_type
 
     def initialize(data, bot)
       @bot = bot
@@ -188,6 +205,23 @@ module Discordrb
     # @!visibility private
     def update_username(username)
       @username = username
+    end
+
+    # Set the user's presence data
+    # @note for internal use only
+    # @!visibility private
+    def update_presence(data)
+      @status = data['status'].to_sym
+
+      if data['game']
+        game = data['game']
+
+        @game = game['name']
+        @stream_url = game['url']
+        @stream_type = game['type']
+      else
+        @game = @stream_url = @stream_type = nil
+      end
     end
 
     # Add an await for a message from this user. Specifically, this adds a global await for a MessageEvent with this
@@ -418,6 +452,8 @@ module Discordrb
       @self_deaf = self_deaf
     end
   end
+
+  # A presence represents a
 
   # A member is a user on a server. It differs from regular users in that it has roles, voice statuses and things like
   # that.
@@ -1175,6 +1211,12 @@ module Discordrb
       @bot.send_file(@id, file, caption: caption, tts: tts)
     end
 
+    # Deletes a message on this channel. Mostly useful in case a message needs to be deleted when only the ID is known
+    # @param message [Message, String, Integer, #resolve_id] The message that should be deleted.
+    def delete_message(message)
+      API::Channel.delete_message(@bot.token, @id, message.resolve_id)
+    end
+
     # Permanently deletes this channel
     def delete
       API::Channel.delete(@bot.token, @id)
@@ -1304,7 +1346,7 @@ module Discordrb
     # @!visibility private
     def history_ids(amount, before_id = nil, after_id = nil)
       logs = API::Channel.messages(@bot.token, @id, amount, before_id, after_id)
-      JSON.parse(logs).map { |message| message['id'] }
+      JSON.parse(logs).map { |message| message['id'].to_i }
     end
 
     # Returns a single message from this channel's history by ID.
@@ -1328,22 +1370,26 @@ module Discordrb
 
     # Delete the last N messages on this channel.
     # @param amount [Integer] How many messages to delete. Must be a value between 2 and 100 (Discord limitation)
+    # @param strict [true, false] Whether an error should be raised when a message is reached that is too old to be bulk
+    #   deleted. If this is false only a warning message will be output to the console.
     # @raise [ArgumentError] if the amount of messages is not a value between 2 and 100
-    def prune(amount)
+    def prune(amount, strict = false)
       raise ArgumentError, 'Can only prune between 2 and 100 messages!' unless amount.between?(2, 100)
 
       messages = history_ids(amount)
-      API::Channel.bulk_delete_messages(@bot.token, @id, messages)
+      bulk_delete(messages, strict)
     end
 
     # Deletes a collection of messages
     # @param messages [Array<Message, Integer>] the messages (or message IDs) to delete. Total must be an amount between 2 and 100 (Discord limitation)
+    # @param strict [true, false] Whether an error should be raised when a message is reached that is too old to be bulk
+    #   deleted. If this is false only a warning message will be output to the console.
     # @raise [ArgumentError] if the amount of messages is not a value between 2 and 100
-    def delete_messages(messages)
+    def delete_messages(messages, strict = false)
       raise ArgumentError, 'Can only delete between 2 and 100 messages!' unless messages.count.between?(2, 100)
 
       messages.map!(&:resolve_id)
-      API::Channel.bulk_delete_messages(@bot.token, @id, messages)
+      bulk_delete(messages, strict)
     end
 
     # Updates the cached permission overwrites
@@ -1448,12 +1494,31 @@ module Discordrb
     # @note For internal use only
     # @!visibility private
     def remove_recipient(recipient)
-      raise 'Tried to add recipient to a non-group channel' unless group?
+      raise 'Tried to remove recipient from a non-group channel' unless group?
       raise ArgumentError, 'Tried to remove a non-recipient from a group' unless recipient.is_a?(Recipient)
       @recipients.delete(recipient)
     end
 
     private
+
+    # For bulk_delete checking
+    TWO_WEEKS = 86_400 * 14
+
+    # Deletes a list of messages on this channel using bulk delete
+    def bulk_delete(ids, strict = false)
+      min_snowflake = IDObject.synthesise(Time.now - TWO_WEEKS)
+
+      ids.reject! do |e|
+        next unless e < min_snowflake
+
+        message = "Attempted to bulk_delete message #{e} which is too old (min = #{min_snowflake})"
+        raise ArgumentError, message if strict
+        Discordrb::LOGGER.warn(message)
+        false
+      end
+
+      API::Channel.bulk_delete_messages(@bot.token, @id, ids)
+    end
 
     def update_channel_data
       API::Channel.update(@bot.token, @id, @name, @topic, @position, @bitrate, @user_limit)
@@ -1940,7 +2005,7 @@ module Discordrb
 
       @name = data['name']
       @server = server
-      @id = data['id'].to_i
+      @id = data['id'].nil? ? nil : data['id'].to_i
 
       process_roles(data['roles']) if server
     end
@@ -2214,8 +2279,9 @@ module Discordrb
     alias_method :general_channel, :default_channel
 
     # Gets a role on this server based on its ID.
-    # @param id [Integer] The role ID to look for.
+    # @param id [Integer, String, #resolve_id] The role ID to look for.
     def role(id)
+      id = id.resolve_id
       @roles.find { |e| e.id == id }
     end
 
@@ -2247,7 +2313,7 @@ module Discordrb
 
     # @return [Array<Integration>] an array of all the integrations connected to this server.
     def integrations
-      integration = JSON.parse(API.server_integrations(@bot.token, @id))
+      integration = JSON.parse(API::Server.integrations(@bot.token, @id))
       integration.map { |element| Integration.new(element, @bot, self) }
     end
 
@@ -2255,7 +2321,7 @@ module Discordrb
     # @note For internal use only
     # @!visibility private
     def cache_embed
-      @embed = JSON.parse(API.server(@bot.token, @id))['embed_enabled'] if @embed.nil?
+      @embed ||= JSON.parse(API::Server.resolve(@bot.token, @id))['embed_enabled']
     end
 
     # @return [true, false] whether or not the server has widget enabled
@@ -2309,8 +2375,7 @@ module Discordrb
 
     # @return [String] the hexadecimal ID used to identify this server's splash image for their VIP invite page.
     def splash_id
-      @splash_id = JSON.parse(API.server(@bot.token, @id))['splash'] if @splash_id.nil?
-      @splash_id
+      @splash_id ||= JSON.parse(API::Server.resolve(@bot.token, @id))['splash']
     end
 
     # @return [String, nil] the splash image URL for the server's VIP invite page.
@@ -2567,6 +2632,14 @@ module Discordrb
       @channels_by_id.delete(id)
     end
 
+    # Updates the cached emoji data with new data
+    # @note For internal use only
+    # @!visibility private
+    def update_emoji_data(new_data)
+      @emoji = {}
+      process_emoji(new_data['emojis'])
+    end
+
     # The inspect method is overwritten to give more useful output
     def inspect
       "<Server name=#{@name} id=#{@id} large=#{@large} region=#{@region} owner=#{@owner} afk_channel_id=#{@afk_channel_id} afk_timeout=#{@afk_timeout}>"
@@ -2621,8 +2694,7 @@ module Discordrb
         user_id = element['user']['id'].to_i
         user = @members[user_id]
         if user
-          user.status = element['status'].to_sym
-          user.game = element['game'] ? element['game']['name'] : nil
+          user.update_presence(element)
         else
           LOGGER.warn "Rogue presence update! #{element['user']['id']} on #{@id}"
         end
