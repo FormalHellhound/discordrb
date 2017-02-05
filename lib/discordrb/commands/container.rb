@@ -59,7 +59,7 @@ module Discordrb::Commands
         end
 
         name[1..-1].each do |e|
-          attributes['help_available'] = false
+          attributes[:help_available] = false
           new_command = Command.new(e, attributes, &block)
           @commands[e] = new_command
         end
