@@ -53,8 +53,13 @@ module Discordrb::Commands
       if name.is_a? Array
         new_command = nil
 
-        name.each do |e|
-          attributes['help_available'] = false if name[1..-1]
+        name[0..0].each do |e|
+          new_command = Command.new(e, attributes, &block)
+          @commands[e] = new_command
+        end
+
+        name[1..-1].each do |e|
+          attributes['help_available'] = false
           new_command = Command.new(e, attributes, &block)
           @commands[e] = new_command
         end
