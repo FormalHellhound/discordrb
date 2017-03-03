@@ -145,8 +145,8 @@ module Discordrb::Commands
           result = "**#{command_name}**: #{desc}"
           result += "\n**Usage**: `#{usage}`" if usage
           if parameters
-            result += "\n**Accepted Parameters**:\n"
-            parameters.each { |p| result += "\n#{p}" }
+            result += "\n**Accepted Parameters**:"
+            parameters.each { |p| result += "\n- #{p}" }
           end
           event.user.pm.send_embed do |e|
             e.title = "Detailed Command Help"
