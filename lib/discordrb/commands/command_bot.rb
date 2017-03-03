@@ -154,15 +154,25 @@ module Discordrb::Commands
           available_commands = @commands.values.reject do |c|
             !c.attributes[:help_available] || !required_roles?(event.user, c.attributes[:required_roles]) || !required_permissions?(event.user, c.attributes[:required_permissions], event.channel) || !permitted_roles?(event.user, c.attributes[:permitted_roles])
           end
+          available_commands = available_commands.sort_by!{ |c| c.name.downcase }
+          command_name = ''
           case available_commands.length
           when 0..5
             available_commands.reduce "**List of commands:**\n" do |memo, c|
-              memo + "**`#{c.name}`**: #{c.attributes[:description] || '*No description available*'}\n"
+              command_name = "- **`#{c.name}`**: #{c.attributes[:description] || '*No description available*'}\n"
+            end
+            event.user.pm.send_embed do |e|
+              e.title = "**List of commands:**\n"
+              e.description = command_name
             end
           when 5..50
             (available_commands.reduce "**List of commands:**\n" do |memo, c|
-              memo + "`#{c.name}`, "
+              command_name += "- #{c.name}\n"
             end)[0..-3]
+            event.user.pm.send_embed do |e|
+              e.title = "**List of commands:**\n"
+              e.description = command_name
+            end
           else
             event.user.pm(available_commands.reduce("**List of commands:**\n") { |m, e| m + "`#{e.name}`, " }[0..-3])
             event.channel.pm? ? '' : 'Sending list in PM!'
