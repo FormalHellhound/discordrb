@@ -142,14 +142,16 @@ module Discordrb::Commands
           desc = command.attributes[:description] || '*No description available*'
           usage = command.attributes[:usage]
           parameters = command.attributes[:parameters]
-          result = "**`#{command_name}`**: #{desc}"
-          result += "\nUsage: `#{usage}`" if usage
+          result = "**#{command_name}**: #{desc}"
+          result += "\n**Usage**: `#{usage}`" if usage
           if parameters
-            result += "\nAccepted Parameters:\n```"
+            result += "\n**Accepted Parameters**:\n"
             parameters.each { |p| result += "\n#{p}" }
-            result += '```'
           end
-          result
+          event.user.pm.send_embed do |e|
+            e.title = "Detailed Command Help"
+            e.description = result
+          end
         else
           available_commands = @commands.values.reject do |c|
             !c.attributes[:help_available] || !required_roles?(event.user, c.attributes[:required_roles]) || !required_permissions?(event.user, c.attributes[:required_permissions], event.channel) || !permitted_roles?(event.user, c.attributes[:permitted_roles])
@@ -162,7 +164,7 @@ module Discordrb::Commands
               command_name = "- **`#{c.name}`**: #{c.attributes[:description] || '*No description available*'}\n"
             end
             event.user.pm.send_embed do |e|
-              e.title = "**List of commands:**\n"
+              e.title = "**List of commands:**"
               e.description = command_name
             end
           when 5..50
@@ -170,7 +172,7 @@ module Discordrb::Commands
               command_name += "- #{c.name}\n"
             end)[0..-3]
             event.user.pm.send_embed do |e|
-              e.title = "**List of commands:**\n"
+              e.title = "**List of commands:**"
               e.description = command_name
             end
           else
