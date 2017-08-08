@@ -11,6 +11,9 @@ module Discordrb::API
   # The base URL of the Discord REST API.
   APIBASE = 'https://discordapp.com/api/v6'.freeze
 
+  # The URL of Discord's CDN
+  CDN_URL = 'https://cdn.discordapp.com'.freeze
+
   module_function
 
   # @return [String] the currently used API base URL.
@@ -23,6 +26,11 @@ module Discordrb::API
     @api_base = value
   end
 
+  # @return [String] the currently used CDN url
+  def cdn_url
+    @cdn_url || CDN_URL
+  end
+
   # @return [String] the bot name, previously specified using #bot_name=.
   def bot_name
     @bot_name
@@ -31,6 +39,13 @@ module Discordrb::API
   # Sets the bot name to something.
   def bot_name=(value)
     @bot_name = value
+  end
+
+  # Changes the rate limit tracing behaviour. If rate limit tracing is on, a full backtrace will be logged on every RL
+  # hit.
+  # @param value [true, false] whether or not to enable rate limit tracing
+  def trace=(value)
+    @trace = value
   end
 
   # Generate a user agent identifying this requester as discordrb.
@@ -89,18 +104,18 @@ module Discordrb::API
       # If the global mutex happens to be locked right now, wait for that as well.
       mutex_wait(@global_mutex) if @global_mutex.locked?
 
-      response = raw_request(type, attributes)
-
-      if response.headers[:x_ratelimit_remaining] == '0' && !mutex.locked?
-        Discordrb::LOGGER.debug "RL bucket depletion detected! Date: #{response.headers[:date]} Reset: #{response.headers[:x_ratelimit_reset]}"
-
-        now = Time.rfc2822(response.headers[:date])
-        reset = Time.at(response.headers[:x_ratelimit_reset].to_i)
-
-        delta = reset - now
-
-        Discordrb::LOGGER.warn("Locking RL mutex (key: #{key}) for #{delta} seconds preemptively")
-        sync_wait(delta, mutex)
+      response = nil
+      begin
+        response = raw_request(type, attributes)
+      rescue RestClient::Exception => e
+        response = e.response
+        raise e
+      ensure
+        if response
+          handle_preemptive_rl(response.headers, mutex, key) if response.headers[:x_ratelimit_remaining] == '0' && !mutex.locked?
+        else
+          Discordrb::LOGGER.ratelimit('Response was nil before trying to preemptively rate limit!')
+        end
       end
     rescue RestClient::TooManyRequests => e
       # If the 429 is from the global RL, then we have to use the global mutex instead.
@@ -109,7 +124,8 @@ module Discordrb::API
       unless mutex.locked?
         response = JSON.parse(e.response)
         wait_seconds = response['retry_after'].to_i / 1000.0
-        Discordrb::LOGGER.warn("Locking RL mutex (key: #{key}) for #{wait_seconds} seconds due to Discord rate limiting")
+        Discordrb::LOGGER.ratelimit("Locking RL mutex (key: #{key}) for #{wait_seconds} seconds due to Discord rate limiting")
+        trace("429 #{key.join(' ')}")
 
         # Wait the required time synchronized by the mutex (so other incoming requests have to wait) but only do it if
         # the mutex isn't locked already so it will only ever wait once
@@ -122,14 +138,44 @@ module Discordrb::API
     response
   end
 
+  # Handles premeptive ratelimiting by waiting the given mutex by the difference of the Date header to the
+  # X-Ratelimit-Reset header, thus making sure we don't get 429'd in any subsequent requests.
+  def handle_preemptive_rl(headers, mutex, key)
+    Discordrb::LOGGER.ratelimit "RL bucket depletion detected! Date: #{headers[:date]} Reset: #{headers[:x_ratelimit_reset]}"
+
+    now = Time.rfc2822(headers[:date])
+    reset = Time.at(headers[:x_ratelimit_reset].to_i)
+
+    delta = reset - now
+
+    Discordrb::LOGGER.warn("Locking RL mutex (key: #{key}) for #{delta} seconds preemptively")
+    sync_wait(delta, mutex)
+  end
+
+  # Perform rate limit tracing. All this method does is log the current backtrace to the console with the `:ratelimit`
+  # level.
+  # @param reason [String] the reason to include with the backtrace.
+  def trace(reason)
+    unless @trace
+      Discordrb::LOGGER.debug("trace was called with reason #{reason}, but tracing is not enabled")
+      return
+    end
+
+    Discordrb::LOGGER.ratelimit("Trace (#{reason}):")
+
+    caller.each do |str|
+      Discordrb::LOGGER.ratelimit(' ' + str)
+    end
+  end
+
   # Make an icon URL from server and icon IDs
-  def icon_url(server_id, icon_id)
-    "#{api_base}/guilds/#{server_id}/icons/#{icon_id}.jpg"
+  def icon_url(server_id, icon_id, format = 'webp')
+    "#{cdn_url}/icons/#{server_id}/#{icon_id}.#{format}"
   end
 
   # Make an icon URL from application and icon IDs
-  def app_icon_url(app_id, icon_id)
-    "https://cdn.discordapp.com/app-icons/#{app_id}/#{icon_id}.jpg"
+  def app_icon_url(app_id, icon_id, format = 'webp')
+    "#{cdn_url}/app-icons/#{app_id}/#{icon_id}.#{format}"
   end
 
   # Make a widget picture URL from server ID
@@ -143,8 +189,8 @@ module Discordrb::API
   end
 
   # Make an emoji icon URL from emoji ID
-  def emoji_icon_url(emoji_id)
-    "https://cdn.discordapp.com/emojis/#{emoji_id}.png"
+  def emoji_icon_url(emoji_id, format = 'webp')
+    "#{cdn_url}/emojis/#{emoji_id}.#{format}"
   end
 
   # Login to the server
@@ -241,6 +287,18 @@ module Discordrb::API
       :post,
       "#{api_base}/auth/login",
       {}.to_json,
+      Authorization: token,
+      content_type: :json
+    )
+  end
+
+  # Get a list of available voice regions
+  def voice_regions(token)
+    request(
+      :voice_regions,
+      nil,
+      :get,
+      "#{api_base}/voice/regions",
       Authorization: token,
       content_type: :json
     )

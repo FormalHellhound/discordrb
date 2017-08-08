@@ -1,4 +1,5 @@
 # coding: utf-8
+
 lib = File.expand_path('../lib', __FILE__)
 $LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
 require 'discordrb/version'
@@ -26,12 +27,12 @@ Gem::Specification.new do |spec|
 
   spec.add_dependency 'discordrb-webhooks', '~> 3.2.0.1'
 
-  spec.required_ruby_version = '>= 2.1.0'
+  spec.required_ruby_version = '>= 2.2.4'
 
   spec.add_development_dependency 'bundler', '~> 1.10'
   spec.add_development_dependency 'rake', '~> 10.0'
   spec.add_development_dependency 'yard', '~> 0.8.7.6'
   spec.add_development_dependency 'rspec', '~> 3.4.0'
   spec.add_development_dependency 'rspec-prof', '~> 0.0.7'
-  spec.add_development_dependency 'rubocop', '0.45.0'
+  spec.add_development_dependency 'rubocop', '0.49.1'
 end

@@ -261,11 +261,11 @@ module Discordrb
     # @see #send_identify
     def identify
       send_identify(@token, {
-                      :'$os' => RUBY_PLATFORM,
-                      :'$browser' => 'discordrb',
-                      :'$device' => 'discordrb',
-                      :'$referrer' => '',
-                      :'$referring_domain' => ''
+                      '$os': RUBY_PLATFORM,
+                      '$browser': 'discordrb',
+                      '$device': 'discordrb',
+                      '$referrer': '',
+                      '$referring_domain': ''
                     }, true, 100, @shard_key)
     end
 
@@ -347,7 +347,7 @@ module Discordrb
     # Reconnects the gateway connection in a controlled manner.
     # @param attempt_resume [true, false] Whether a resume should be attempted after the reconnection.
     def reconnect(attempt_resume = true)
-      @session.suspend if attempt_resume
+      @session.suspend if @session && attempt_resume
 
       @instant_reconnect = true
       @should_reconnect = true
@@ -478,7 +478,7 @@ module Discordrb
 
     # Whether the URI is secure (connection should be encrypted)
     def secure_uri?(uri)
-      %w(https wss).include? uri.scheme
+      %w[https wss].include? uri.scheme
     end
 
     # The port we should connect to, if the URI doesn't have one set.
@@ -537,6 +537,11 @@ module Discordrb
 
       until @closed
         begin
+          unless @socket
+            LOGGER.warn('Socket is nil in websocket_loop! Reconnecting')
+            handle_internal_close('Socket is nil in websocket_loop')
+          end
+
           recv_data = nil
 
           # Get some data from the socket, synchronised so the socket can't be closed during this
